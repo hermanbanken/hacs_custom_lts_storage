@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from homeassistant.core import HomeAssistant
+from homeassistant.components.recorder import get_instance
 
 from .models import SensorEntry
 from .readers import DailyBatchReader
@@ -13,8 +14,6 @@ from .reducers import reduce_to_interval
 from .storage import BinaryStatsStore
 
 _LOGGER = logging.getLogger(__name__)
-
-MAX_SHORT_TERM_RETENTION_DAYS = 10
 
 
 async def run_daily_batch(
@@ -27,12 +26,14 @@ async def run_daily_batch(
     now = datetime.now(timezone.utc)
     now_ts = now.timestamp()
 
+    keep_days = get_instance(hass).keep_days
+
     for entry in sensors:
         entity_id = entry.entity_id
         last_run = stats_store.read_last_run(entity_id)
 
         if last_run is None:
-            start_time = now - timedelta(days=MAX_SHORT_TERM_RETENTION_DAYS)
+            start_time = now - timedelta(days=keep_days)
         else:
             start_time = datetime.fromtimestamp(last_run, tz=timezone.utc)
 
@@ -47,7 +48,6 @@ async def run_daily_batch(
             continue
 
         current_year = now.year
-        total_written = 0
 
         for metric, rows in all_metrics.items():
             if not rows:
@@ -59,15 +59,18 @@ async def run_daily_batch(
 
             last_stored_ts = stats_store.get_last_timestamp(entity_id, current_year)
 
-            for bucket_ts, value in reduced:
-                if last_stored_ts is not None and bucket_ts <= last_stored_ts:
-                    continue
+            new_rows = [
+                (bucket_ts, value)
+                for bucket_ts, value in reduced
+                if last_stored_ts is None or bucket_ts > last_stored_ts
+            ]
+
+            if new_rows:
                 try:
-                    stats_store.write_row(entity_id, current_year, bucket_ts, value)
-                    total_written += 1
+                    stats_store.write_rows_batch(entity_id, current_year, new_rows)
                 except OSError as exc:
                     _LOGGER.error(
-                        "Failed to write row for %s/%s year=%s: %s",
+                        "Failed to write rows for %s/%s year=%s: %s",
                         entity_id,
                         metric,
                         current_year,
@@ -75,8 +78,4 @@ async def run_daily_batch(
                     )
 
         stats_store.write_last_run(entity_id, now_ts)
-        _LOGGER.info(
-            "Batch completed for %s: %d rows written",
-            entity_id,
-            total_written,
-        )
+        _LOGGER.info("Batch completed for %s", entity_id)

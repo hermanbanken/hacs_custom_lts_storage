@@ -51,6 +51,9 @@ class StateChangeTracker:
         state_value = new_state.state
         now = time.time()
 
-        self._store.record_state_change(
-            self._entity_id, now, state_value
+        self._hass.async_add_executor_job(
+            self._store.record_state_change,
+            self._entity_id,
+            now,
+            state_value,
         )

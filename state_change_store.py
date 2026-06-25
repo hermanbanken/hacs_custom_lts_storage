@@ -15,6 +15,8 @@ FLOAT64_SIZE = 8
 UINT16_SIZE = 2
 STATE_INDEX_PACK = ">H"
 
+MAX_STATES_FILE_SIZE_BYTES = 1024 * 1024
+
 LAST_STATE_CHANGE_FILENAME = "_last_state_change.json"
 
 
@@ -41,7 +43,13 @@ class StateChangeStore:
         path = self._states_file(entity_id, year)
         if not path.exists():
             return []
-        return path.read_text().strip().split("\n") if path.read_text().strip() else []
+        if path.stat().st_size > MAX_STATES_FILE_SIZE_BYTES:
+            _LOGGER.error(
+                "States file %s exceeds max size (%d bytes)", path, MAX_STATES_FILE_SIZE_BYTES
+            )
+            return []
+        text = path.read_text()
+        return text.strip().split("\n") if text.strip() else []
 
     def _ensure_state_file(self, entity_id: str, year: int) -> None:
         path = self._states_file(entity_id, year)
