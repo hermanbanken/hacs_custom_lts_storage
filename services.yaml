@@ -1,0 +1,44 @@
+download_statistics:
+  target:
+    entity:
+      integration: custom_lts_storage
+  fields:
+    sensor_entity:
+      required: true
+      selector:
+        text:
+    year:
+      required: true
+      selector:
+        number:
+          min: 2020
+          max: 2100
+          mode: box
+    metric:
+      selector:
+        select:
+          options:
+            - "sum"
+            - "mean"
+            - "max"
+            - "min"
+            - "state"
+
+download_current_year:
+  target:
+    entity:
+      integration: custom_lts_storage
+  fields:
+    sensor_entity:
+      required: true
+      selector:
+        text:
+    metric:
+      selector:
+        select:
+          options:
+            - "sum"
+            - "mean"
+            - "max"
+            - "min"
+            - "state"

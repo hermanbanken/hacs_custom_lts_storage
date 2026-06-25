@@ -1,0 +1,11 @@
+{
+  "domain": "custom_lts_storage",
+  "name": "Custom LTS Storage",
+  "version": "1.0.0",
+  "requirements": [],
+  "dependencies": ["recorder", "media_source"],
+  "codeowners": [],
+  "config_flow": true,
+  "iot_class": "local_polling",
+  "quality_scale": "custom"
+}

@@ -1,0 +1,73 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add sensor",
+        "description": "Configure a sensor for custom LTS storage",
+        "data": {
+          "sensor_entity": "Entity ID",
+          "interval": "Interval (minutes)",
+          "metrics": "Metrics to store",
+          "track_state_changes": "Track state changes"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found",
+      "invalid_entity": "Entity must be a sensor",
+      "no_metrics": "Select at least one metric",
+      "data_dir_not_writable": "Data directory is not writable"
+    },
+    "abort": {
+      "already_configured": "Sensor is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "description": "Manage configured sensors",
+        "data": {
+          "sensors": "Sensors"
+        }
+      }
+    }
+  },
+  "services": {
+    "download_statistics": {
+      "name": "Download statistics",
+      "description": "Downloads a specific year file for a sensor",
+      "fields": {
+        "sensor_entity": {
+          "name": "Sensor entity",
+          "description": "Entity ID of the sensor",
+          "example": "sensor.energy_consumption"
+        },
+        "year": {
+          "name": "Year",
+          "description": "Year to download (e.g., 2025)",
+          "example": 2025
+        },
+        "metric": {
+          "name": "Metric",
+          "description": "Which metric file to download (sum, mean, max, min, state). None for mode sensor."
+        }
+      }
+    },
+    "download_current_year": {
+      "name": "Download current year",
+      "description": "Downloads the current year's active file",
+      "fields": {
+        "sensor_entity": {
+          "name": "Sensor entity",
+          "description": "Entity ID of the sensor",
+          "example": "sensor.energy_consumption"
+        },
+        "metric": {
+          "name": "Metric",
+          "description": "Which metric file to download (sum, mean, max, min, state). None for mode sensor."
+        }
+      }
+    }
+  }
+}
