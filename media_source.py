@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
+import struct
+from pathlib import Path
 
 from homeassistant.components.media_player import BrowseMedia, MediaClass, MediaType
 from homeassistant.components.media_source.error import Unresolvable
@@ -16,7 +20,7 @@ from homeassistant.components.media_source.models import (
 from homeassistant.core import HomeAssistant, callback
 
 from .models import SensorEntry
-from .storage import BinaryStatsStore
+from .storage import BinaryStatsStore, STATS_ROW_SIZE, FLOAT64_SIZE, TIMESTAMP_PACK, VALUE_PACK
 from .state_change_store import StateChangeStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -153,7 +157,7 @@ class CustomLTSMediaSource(MediaSource):
         )
 
     def _browse_year_files(self, entity_id: str, year: int) -> BrowseMediaSource:
-        """Browse a year: list available metric files."""
+        """Browse a year: list available binary files and CSV downloads."""
         safe_name = entity_id.replace(".", "_")
         path = self._stats_store.base_dir / safe_name / f"{year}.bin"
         states_path = self._state_store.base_dir / safe_name / f"{year}_states.txt"
@@ -161,18 +165,28 @@ class CustomLTSMediaSource(MediaSource):
         children = []
 
         if path.exists():
-            for metric in ["sum", "mean", "max", "min", "state"]:
-                children.append(
-                    BrowseMediaSource(
-                        domain=self.domain,
-                        identifier=f"{entity_id}/{year}/{metric}",
-                        media_class=MediaClass.FILE,
-                        media_content_type="application/octet-stream",
-                        title=f"{year} - {metric}",
-                        can_play=True,
-                        can_expand=False,
-                    )
+            children.append(
+                BrowseMediaSource(
+                    domain=self.domain,
+                    identifier=f"{entity_id}/{year}/binary",
+                    media_class=MediaClass.FILE,
+                    media_content_type="application/octet-stream",
+                    title=f"{year} - raw binary",
+                    can_play=True,
+                    can_expand=False,
                 )
+            )
+            children.append(
+                BrowseMediaSource(
+                    domain=self.domain,
+                    identifier=f"{entity_id}/{year}/csv",
+                    media_class=MediaClass.FILE,
+                    media_content_type="text/csv",
+                    title=f"{year} - CSV",
+                    can_play=True,
+                    can_expand=False,
+                )
+            )
 
         if states_path.exists():
             children.append(
@@ -199,7 +213,11 @@ class CustomLTSMediaSource(MediaSource):
         )
 
     async def async_resolve_media(self, item: MediaSourceItem) -> PlayMedia:
-        """Resolve a media item to a playable file."""
+        """Resolve a media item to a playable file.
+
+        Handles: {entity_id}/{year}/binary → raw .bin, {entity_id}/{year}/csv → CSV on-the-fly,
+        {entity_id}/{year}/states → states.txt.
+        """
         identifier = item.identifier
         if not identifier:
             raise Unresolvable("No identifier provided")
@@ -208,7 +226,9 @@ class CustomLTSMediaSource(MediaSource):
         if len(parts) < 3:
             raise Unresolvable("Invalid identifier format")
 
-        entity_id, year_str, metric = parts[0], parts[1], parts[2]
+        entity_id = parts[0]
+        year_str = parts[1]
+        fmt = parts[2]
         year = int(year_str)
 
         configured = {s.entity_id for s in self._sensors}
@@ -217,18 +237,45 @@ class CustomLTSMediaSource(MediaSource):
 
         safe_name = entity_id.replace(".", "_")
 
-        if metric == "states":
-            path = (
-                self._state_store.base_dir
-                / safe_name
-                / f"{year}_states.txt"
-            )
-            mime_type = "text/plain"
-        else:
+        if fmt == "states":
+            path = self._state_store.base_dir / safe_name / f"{year}_states.txt"
+            if not path.exists():
+                raise Unresolvable(f"File not found: {path}")
+            return PlayMedia(url=str(path), mime_type="text/plain")
+
+        if fmt == "csv":
+            bin_path = self._stats_store.base_dir / safe_name / f"{year}.bin"
+            if not bin_path.exists():
+                raise Unresolvable(f"File not found: {bin_path}")
+            csv_data = self._convert_binary_to_csv(bin_path)
+            tmp_path = self._stats_store.base_dir / safe_name / f"{year}_temp.csv"
+            tmp_path.write_text(csv_data)
+            return PlayMedia(url=str(tmp_path), mime_type="text/csv")
+
+        if fmt == "binary":
             path = self._stats_store.base_dir / safe_name / f"{year}.bin"
-            mime_type = "application/octet-stream"
+            if not path.exists():
+                raise Unresolvable(f"File not found: {path}")
+            return PlayMedia(url=str(path), mime_type="application/octet-stream")
 
-        if not path.exists():
-            raise Unresolvable(f"File not found: {path}")
+        raise Unresolvable(f"Unknown format: {fmt}")
 
-        return PlayMedia(url=str(path), mime_type=mime_type)
+    def _convert_binary_to_csv(self, bin_path: Path) -> str:
+        """Convert a binary .bin file to CSV with timestamp,value columns."""
+        if not bin_path.exists():
+            return ""
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["timestamp", "value"])
+
+        with open(bin_path, "rb") as f:
+            while True:
+                chunk = f.read(STATS_ROW_SIZE)
+                if len(chunk) < STATS_ROW_SIZE:
+                    break
+                ts = struct.unpack(TIMESTAMP_PACK, chunk[:FLOAT64_SIZE])[0]
+                val = struct.unpack(VALUE_PACK, chunk[FLOAT64_SIZE:])[0]
+                writer.writerow([ts, val])
+
+        return output.getvalue()
